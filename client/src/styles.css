@@ -251,6 +251,111 @@ header h1 {
   color: #a86a00;
 }
 
+.tag-ok {
+  background: #e6f6ee;
+  color: var(--ok);
+}
+
+.tag-warn {
+  background: var(--warn-bg);
+  color: #a86a00;
+}
+
+/* ---------- 条款裁撤 ---------- */
+
+.impact-box {
+  margin-top: 14px;
+  border-top: 1px dashed var(--line);
+  padding-top: 6px;
+}
+
+.chip-list {
+  list-style: none;
+  margin: 6px 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chip-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.del-chip {
+  display: inline-block;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-family: Consolas, monospace;
+  white-space: nowrap;
+}
+
+.ellipsis.inline {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 360px;
+}
+
+.mapping-box {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 10px 0;
+  background: #fafbfe;
+}
+
+.replace-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.replace-row select {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.replace-row select.input-bad {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.field-hint.ok {
+  color: var(--ok);
+}
+
+.path-line {
+  font-family: Consolas, monospace;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.removed-snippet {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'SFMono-Regular', Consolas, 'Source Han Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--danger);
+  max-height: 160px;
+  overflow: auto;
+  background: var(--danger-bg);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 .issue-list {
   margin: 8px 0 12px;
   display: flex;

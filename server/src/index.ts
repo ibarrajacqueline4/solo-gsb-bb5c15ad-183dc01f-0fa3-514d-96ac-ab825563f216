@@ -14,6 +14,13 @@ import {
 } from './db';
 import { analyzeText, toAnalyzeDTO } from './parser';
 import { buildPlan, normalizeMapping, type ConflictError, type RawRow } from './renumber';
+import {
+  analyzeRemoval,
+  buildRemovalPlan,
+  normalizeRemovalRequest,
+  type RemovalConflict,
+  type RemovalReplacement,
+} from './removal';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,6 +59,30 @@ function planOrConflict(res: express.Response, content: string, rawMapping: unkn
     return null;
   }
   return { entries, plan };
+}
+
+/**
+ * 解析并校验裁撤请求；输入形态错误以 409 返回。
+ * 返回的 plan 可能仍含语义冲突（未处理引用等），由调用方再次判定。
+ */
+function removalOrConflict(
+  res: express.Response,
+  content: string,
+  body: unknown,
+): { deletes: number[]; replacements: RemovalReplacement[]; plan: ReturnType<typeof buildRemovalPlan> } | null {
+  const b = (body ?? {}) as { deletes?: unknown; replacements?: unknown };
+  const { deletes, replacements, errors } = normalizeRemovalRequest(b);
+  if (errors.length > 0) {
+    fail(res, 409, 'REMOVAL_REJECTED', '裁撤请求未通过校验，已拒绝写入。', { conflicts: errors });
+    return null;
+  }
+  const plan = buildRemovalPlan(content, deletes, replacements);
+  if (!plan.ok) {
+    const conflicts: RemovalConflict[] = plan.conflicts ?? [];
+    fail(res, 409, 'REMOVAL_CONFLICT', '条款裁撤存在未处理问题，已拒绝写入。', { conflicts });
+    return null;
+  }
+  return { deletes, replacements, plan };
 }
 
 const requireDoc = (res: express.Response, id: number) => {
@@ -134,7 +165,7 @@ app.post('/api/documents/:id/renumber/commit', (req, res) => {
     id,
     doc.content,
     plan.newText!,
-    JSON.stringify(entries),
+    JSON.stringify({ op: 'renumber', mapping: entries }),
     plan.changes!.length,
   );
 
@@ -144,6 +175,82 @@ app.post('/api/documents/:id/renumber/commit', (req, res) => {
     mapping: entries,
     changeCount: plan.changes!.length,
     changes: plan.changes,
+    analysis: analysisOf(updated.content),
+  });
+});
+
+// ---------- 条款裁撤 ----------
+
+// 影响分析（只读）：按标题边界识别区块、构建引用图，
+// 返回直接引用待删条款的位置与沿引用链传递受影响的条款。
+app.post('/api/documents/:id/removal/impact', (req, res) => {
+  const id = Number(req.params.id);
+  const doc = requireDoc(res, id);
+  if (!doc) return;
+  const { deletes, errors } = normalizeRemovalRequest(req.body ?? {});
+  if (errors.length > 0) {
+    return fail(res, 409, 'REMOVAL_REJECTED', '裁撤请求未通过校验。', { conflicts: errors });
+  }
+  const graph = analyzeRemoval(doc.content, deletes);
+  // 回显当前替代目标，便于前端保持编辑状态
+  const replacementByFrom = new Map<number, number>();
+  for (const r of (req.body as { replacements?: RemovalReplacement[] }).replacements ?? []) {
+    replacementByFrom.set(r.from, r.to);
+  }
+  if (replacementByFrom.size > 0) {
+    for (const d of graph.directReferences) {
+      if (replacementByFrom.has(d.number)) d.replacement = replacementByFrom.get(d.number);
+    }
+  }
+  res.json({ deletes, impact: graph });
+});
+
+// 删除区块与逐处替换预览（只读，冲突返回 409 并附行列位置）。
+app.post('/api/documents/:id/removal/preview', (req, res) => {
+  const id = Number(req.params.id);
+  const doc = requireDoc(res, id);
+  if (!doc) return;
+  const planned = removalOrConflict(res, doc.content, req.body);
+  if (!planned) return;
+  const { deletes, replacements, plan } = planned;
+  res.json({
+    deletes,
+    replacements,
+    deleteCount: plan.deleteCount!,
+    blocks: plan.blocks,
+    changes: plan.changes,
+    changeCount: plan.changes!.length,
+    impact: analyzeRemoval(doc.content, deletes),
+    previewText: plan.newText,
+  });
+});
+
+// 确认裁撤：删除区块、引用替换与撤销历史在同一 SQLite 事务原子落库。
+app.post('/api/documents/:id/removal/commit', (req, res) => {
+  const id = Number(req.params.id);
+  const doc = requireDoc(res, id);
+  if (!doc) return;
+  const planned = removalOrConflict(res, doc.content, req.body);
+  if (!planned) return;
+  const { deletes, replacements, plan } = planned;
+
+  commitRenumber(
+    id,
+    doc.content,
+    plan.newText!,
+    JSON.stringify({ op: 'remove', deletes, replacements }),
+    plan.changes!.length,
+  );
+
+  const updated = getDocument(id)!;
+  res.json({
+    document: updated,
+    deletes,
+    replacements,
+    deleteCount: plan.deleteCount!,
+    blocks: plan.blocks,
+    changes: plan.changes,
+    changeCount: plan.changes!.length,
     analysis: analysisOf(updated.content),
   });
 });
@@ -158,10 +265,19 @@ app.post('/api/documents/:id/undo', (req, res) => {
     return fail(res, 409, 'NOTHING_TO_UNDO', '没有可撤销的改号记录。');
   }
   const updated = getDocument(id)!;
+  const snapshot = JSON.parse(undone.mapping) as {
+    op?: string;
+    mapping?: unknown;
+    deletes?: unknown;
+    replacements?: unknown;
+  };
   res.json({
     document: updated,
     undone: {
-      mapping: JSON.parse(undone.mapping),
+      op: snapshot.op ?? 'renumber',
+      mapping: snapshot.mapping ?? snapshot,
+      deletes: snapshot.deletes ?? null,
+      replacements: snapshot.replacements ?? null,
       changeCount: undone.change_count,
       createdAt: undone.created_at,
     },

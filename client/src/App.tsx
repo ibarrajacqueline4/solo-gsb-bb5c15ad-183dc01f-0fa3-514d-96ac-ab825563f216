@@ -7,12 +7,18 @@ import type {
   DocumentDTO,
   MappingEntry,
   PreviewResult,
+  RemovalCommitResult,
+  RemovalImpact,
+  RemovalPreviewResult,
+  RemovalReplacement,
   UndoResult,
 } from './types';
-import { SAMPLE_CONTRACT } from './sample';
+import { SAMPLE_CONTRACT, CLEAN_SAMPLE_CONTRACT } from './sample';
 import AnalysisPanel from './components/AnalysisPanel';
 import MappingEditor, { type MappingRow } from './components/MappingEditor';
 import PreviewPanel from './components/PreviewPanel';
+import RemovalPanel from './components/RemovalPanel';
+import RemovalPreview from './components/RemovalPreview';
 import Conflicts from './components/Conflicts';
 import HighlightedText from './components/HighlightedText';
 
@@ -38,6 +44,13 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(false);
 
+  // 条款裁撤状态
+  const [removeSelected, setRemoveSelected] = useState<Set<number>>(new Set());
+  const [removeImpact, setRemoveImpact] = useState<RemovalImpact | null>(null);
+  const [removeReplacements, setRemoveReplacements] = useState<RemovalReplacement[]>([]);
+  const [removePreview, setRemovePreview] = useState<RemovalPreviewResult | null>(null);
+  const [removeCommitted, setRemoveCommitted] = useState<RemovalCommitResult | null>(null);
+
   const toMapping = (): MappingEntry[] =>
     rows
       .map((r) => ({ from: Number(r.from), to: Number(r.to) }))
@@ -52,6 +65,15 @@ export default function App() {
     setLastUndo(null);
     setConflicts([]);
     setEditing(false);
+    resetRemoval();
+  };
+
+  const resetRemoval = () => {
+    setRemoveSelected(new Set());
+    setRemoveImpact(null);
+    setRemoveReplacements([]);
+    setRemovePreview(null);
+    setRemoveCommitted(null);
   };
 
   const parse = async () => {
@@ -118,7 +140,108 @@ export default function App() {
       setPreview(null);
       setRows(emptyRows());
       setLastUndo(null);
+      resetRemoval();
       setNotice(`已原子提交：共更新 ${result.changeCount} 处“第X条”。可撤销本次操作。`);
+    } catch (e) {
+      const err = e as ClientError;
+      setConflicts(
+        err.conflicts.length
+          ? err.conflicts
+          : [{ code: err.code, message: err.message }],
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ---------- 条款裁撤 ----------
+
+  const changeRemoveSelection = (next: Set<number>) => {
+    setRemoveSelected(next);
+    setRemoveImpact(null);
+    setRemovePreview(null);
+    setRemoveCommitted(null);
+  };
+
+  const changeRemoveReplacements = (rows2: RemovalReplacement[]) => {
+    setRemoveReplacements(rows2);
+    setRemovePreview(null);
+    setRemoveCommitted(null);
+  };
+
+  const doRemovalImpact = async () => {
+    if (!doc || removeSelected.size === 0) return;
+    setLoading(true);
+    setConflicts([]);
+    setNotice('');
+    try {
+      const deletes = [...removeSelected].sort((a, b) => a - b);
+      const { impact } = await api.removalImpact(doc.id, deletes, removeReplacements);
+      setRemoveImpact(impact);
+      // 自动为需要映射的待删编号保留已有选择，其余清空，交由用户逐组选择
+      const needed = new Set(impact.directReferences.map((r) => r.number));
+      setRemoveReplacements(
+        removeReplacements.filter(
+          (r) => needed.has(r.from) && removeSelected.has(r.from),
+        ),
+      );
+    } catch (e) {
+      const err = e as ClientError;
+      setConflicts(
+        err.conflicts.length
+          ? err.conflicts
+          : [{ code: err.code, message: err.message }],
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const doRemovalPreview = async () => {
+    if (!doc || removeSelected.size === 0) return;
+    setLoading(true);
+    setConflicts([]);
+    setNotice('');
+    try {
+      const deletes = [...removeSelected].sort((a, b) => a - b);
+      const result = await api.removalPreview(doc.id, deletes, removeReplacements);
+      setRemovePreview(result);
+      setRemoveCommitted(null);
+    } catch (e) {
+      const err = e as ClientError;
+      setRemovePreview(null);
+      setConflicts(
+        err.conflicts.length
+          ? err.conflicts
+          : [{ code: err.code, message: err.message }],
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const doRemovalCommit = async () => {
+    if (!doc || removeSelected.size === 0) return;
+    setLoading(true);
+    setConflicts([]);
+    setNotice('');
+    try {
+      const deletes = [...removeSelected].sort((a, b) => a - b);
+      const result = await api.removalCommit(doc.id, deletes, removeReplacements);
+      setDoc(result.document);
+      setAnalysis(result.analysis);
+      setRemoveCommitted(result);
+      setRemovePreview(null);
+      setRemoveImpact(null);
+      setRemoveSelected(new Set());
+      setRemoveReplacements([]);
+      setRows(emptyRows());
+      setPreview(null);
+      setCommitted(null);
+      setLastUndo(null);
+      setNotice(
+        `已原子裁撤 ${result.deleteCount} 个条款区块，改写 ${result.changeCount} 处引用。可撤销本次操作。`,
+      );
     } catch (e) {
       const err = e as ClientError;
       setConflicts(
@@ -144,8 +267,10 @@ export default function App() {
       setCommitted(null);
       setPreview(null);
       setRows(emptyRows());
+      resetRemoval();
+      const opText = result.undone.op === 'remove' ? '条款裁撤' : '改号';
       setNotice(
-        `已撤销最近一次改号（${result.undone.changeCount} 处，恢复到操作前文本）。`,
+        `已撤销最近一次${opText}（${result.undone.changeCount} 处引用变更，恢复到操作前文本）。`,
       );
     } catch (e) {
       const err = e as ClientError;
@@ -178,7 +303,7 @@ export default function App() {
       <header>
         <h1>合同条款重编号工作台</h1>
         <p className="subtitle">
-          解析“第X条”定义与引用 · 批量映射 · 逐处预览 · 原子同步标题与正文 · 可撤销 · 可导出
+          解析“第X条”定义与引用 · 批量映射改号 · 条款裁撤与引用图影响分析 · 逐处预览 · 原子提交 · 可撤销 · 可导出
         </p>
       </header>
 
@@ -219,6 +344,13 @@ export default function App() {
               >
                 载入示例（含重复编号 / 缺失引用 / 第1条与第10条）
               </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => setDraft(CLEAN_SAMPLE_CONTRACT)}
+              >
+                载入无冲突示例（含引用链与循环引用，适合体验条款裁撤）
+              </button>
               <div className="spacer" />
               {editing && (
                 <button type="button" className="btn" onClick={() => setEditing(false)}>
@@ -248,7 +380,56 @@ export default function App() {
           <div className="step">2. 检查引用关系</div>
           <AnalysisPanel analysis={analysis} />
 
-          <div className="step">3. 填写改号映射</div>
+          <div className="step">3. 条款裁撤（可选）：勾选条款 → 分析影响 → 替代引用 → 预览确认</div>
+          <RemovalPanel
+            analysis={analysis}
+            selected={removeSelected}
+            onSelectChange={changeRemoveSelection}
+            impact={removeImpact}
+            loading={loading}
+            onAnalyze={doRemovalImpact}
+            replacements={removeReplacements}
+            onReplacementsChange={changeRemoveReplacements}
+            onPreview={doRemovalPreview}
+            hasPreview={!!removePreview}
+          />
+
+          {removePreview && (
+            <>
+              <RemovalPreview preview={removePreview} />
+              <section className="card final-bar">
+                <span className="muted small">
+                  后端会在提交时再次校验；未处理引用、替代目标在删除集合中、重复/缺失定义都会整体拒绝。
+                </span>
+                <div className="spacer" />
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={doRemovalCommit}
+                  disabled={loading}
+                >
+                  确认裁撤并原子提交（{removePreview.deleteCount} 个条款）
+                </button>
+              </section>
+            </>
+          )}
+
+          {removeCommitted && (
+            <section className="card">
+              <h3>✅ 裁撤已提交</h3>
+              <p className="muted">
+                删除第 {removeCommitted.deletes.map((n) => n).join('、')} 条共{' '}
+                {removeCommitted.deleteCount} 个区块，改写引用{' '}
+                {removeCommitted.changeCount} 处。
+              </p>
+              <details open>
+                <summary>处理后的全文</summary>
+                <pre className="contract-view">{removeCommitted.document.content}</pre>
+              </details>
+            </section>
+          )}
+
+          <div className="step">4. 改号映射（可选）</div>
           <MappingEditor
             analysis={analysis}
             rows={rows}
@@ -277,18 +458,18 @@ export default function App() {
             </section>
           )}
 
-          <div className="step">4. 撤销 / 导出</div>
+          <div className="step">5. 撤销 / 导出</div>
           <section className="card final-bar">
             <button type="button" className="btn" onClick={doUndo} disabled={loading}>
-              ↩ 撤销最近一次改号
+              ↩ 撤销最近一次操作（改号 / 裁撤）
             </button>
             <a className="btn btn-primary" href={doc ? api.exportUrl(doc.id) : '#'}>
               ⬇ 导出处理后的文本（.txt）
             </a>
             {lastUndo && (
               <span className="muted small">
-                上次撤销：{lastUndo.undone.changeCount} 处，映射{' '}
-                {lastUndo.undone.mapping.map((m) => `${m.from}→${m.to}`).join('、')}
+                上次撤销：{lastUndo.undone.op === 'remove' ? '条款裁撤' : '改号'}（
+                {lastUndo.undone.changeCount} 处引用变更）
               </span>
             )}
           </section>

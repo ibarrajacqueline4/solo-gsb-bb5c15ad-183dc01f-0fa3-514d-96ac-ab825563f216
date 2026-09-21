@@ -27,6 +27,8 @@ export function initDB(filename: string): Database.Database {
       document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
       before_text TEXT NOT NULL,
       after_text  TEXT NOT NULL,
+      -- 操作快照 JSON：改号 {op:'renumber', mapping:[...]} 或
+      -- 裁撤 {op:'remove', deletes:[...], replacements:[...]}；撤销据此恢复。
       mapping     TEXT NOT NULL,
       change_count INTEGER NOT NULL,
       created_at  TEXT NOT NULL DEFAULT (datetime('now'))
@@ -113,16 +115,19 @@ export function listDocuments() {
   return stmts.listDocs().all();
 }
 
-/** 原子提交：追加撤销历史 + 更新正文，任一失败整体回滚。 */
+/**
+ * 原子提交（改号或裁撤共用同一入口）：追加撤销历史 + 更新正文，
+ * 任一失败整体回滚。snapshotJson 为操作快照，撤销后原样返回给前端。
+ */
 export function commitRenumber(
   docId: number,
   before: string,
   after: string,
-  mappingJson: string,
+  snapshotJson: string,
   changeCount: number,
 ): void {
   const tx = getDB().transaction(() => {
-    stmts.insertHistory().run(docId, before, after, mappingJson, changeCount);
+    stmts.insertHistory().run(docId, before, after, snapshotJson, changeCount);
     getDB()
       .prepare(
         `UPDATE documents SET content = ?, updated_at = datetime('now') WHERE id = ?`,

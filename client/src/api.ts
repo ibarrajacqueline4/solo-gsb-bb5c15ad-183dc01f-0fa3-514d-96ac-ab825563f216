@@ -4,6 +4,10 @@ import type {
   CommitResult,
   DocumentDTO,
   PreviewResult,
+  RemovalCommitResult,
+  RemovalImpact,
+  RemovalPreviewResult,
+  RemovalReplacement,
   UndoResult,
 } from './types';
 
@@ -66,6 +70,24 @@ export const api = {
   },
   undo(id: number) {
     return request<UndoResult>(`/api/documents/${id}/undo`, { method: 'POST' });
+  },
+  removalImpact(id: number, deletes: number[], replacements: RemovalReplacement[]) {
+    return request<{ deletes: number[]; impact: RemovalImpact }>(
+      `/api/documents/${id}/removal/impact`,
+      { method: 'POST', body: JSON.stringify({ deletes, replacements }) },
+    );
+  },
+  removalPreview(id: number, deletes: number[], replacements: RemovalReplacement[]) {
+    return request<RemovalPreviewResult>(`/api/documents/${id}/removal/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ deletes, replacements }),
+    });
+  },
+  removalCommit(id: number, deletes: number[], replacements: RemovalReplacement[]) {
+    return request<RemovalCommitResult>(`/api/documents/${id}/removal/commit`, {
+      method: 'POST',
+      body: JSON.stringify({ deletes, replacements }),
+    });
   },
   exportUrl(id: number) {
     return `/api/documents/${id}/export`;

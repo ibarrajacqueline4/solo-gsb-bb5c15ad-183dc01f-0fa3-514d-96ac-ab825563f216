@@ -89,7 +89,106 @@ export interface CommitResult {
 
 export interface UndoResult {
   document: DocumentDTO;
-  undone: { mapping: MappingEntry[]; changeCount: number; createdAt: string };
+  undone: {
+    op: 'renumber' | 'remove';
+    mapping: MappingEntry[];
+    deletes?: number[] | null;
+    replacements?: RemovalReplacement[] | null;
+    changeCount: number;
+    createdAt: string;
+  };
+  analysis: AnalyzeDTO;
+}
+
+// ---------- 条款裁撤 ----------
+
+export interface RemovalReplacement {
+  from: number;
+  to: number;
+}
+
+export interface DirectRefDTO {
+  number: number;
+  pos: TextPos;
+  line: string;
+  ownerNumber: number | null;
+  ownerHeading: string | null;
+  replacement?: number;
+}
+
+export interface ImpactedClauseDTO {
+  number: number;
+  heading: string;
+  headingLine: number;
+  direct: boolean;
+  paths: number[][];
+  directRefs: { number: number; pos: TextPos }[];
+}
+
+export interface DeletedClauseDTO {
+  number: number;
+  heading: string;
+  headingLine: number;
+  survivingRefCount: number;
+  unreferenced: boolean;
+}
+
+export interface RemovalImpact {
+  deletes: DeletedClauseDTO[];
+  directReferences: DirectRefDTO[];
+  impacted: ImpactedClauseDTO[];
+  unreferenced: number[];
+}
+
+export interface NeighborHeadingDTO {
+  number: number;
+  heading: string;
+  headingLine: number;
+}
+
+export interface RemovalBlock {
+  number: number;
+  heading: string;
+  start: TextPos;
+  end: TextPos;
+  startLine: number;
+  endLine: number;
+  removedText: string;
+  prev: NeighborHeadingDTO | null;
+  next: NeighborHeadingDTO | null;
+}
+
+export interface RemovalChangeItem {
+  kind: 'reference';
+  fromNumber: number;
+  toNumber: number;
+  before: string;
+  after: string;
+  line: number;
+  column: number;
+  snippet: string;
+  ownerNumber: number | null;
+}
+
+export interface RemovalPreviewResult {
+  deletes: number[];
+  replacements: RemovalReplacement[];
+  deleteCount: number;
+  blocks: RemovalBlock[];
+  changes: RemovalChangeItem[];
+  changeCount: number;
+  impact: RemovalImpact;
+  previewText: string;
+}
+
+export interface RemovalCommitResult {
+  document: DocumentDTO;
+  deletes: number[];
+  replacements: RemovalReplacement[];
+  deleteCount: number;
+  blocks: RemovalBlock[];
+  changes: RemovalChangeItem[];
+  changeCount: number;
   analysis: AnalyzeDTO;
 }
 
