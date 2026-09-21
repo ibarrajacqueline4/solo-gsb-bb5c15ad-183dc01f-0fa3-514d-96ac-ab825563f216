@@ -122,7 +122,7 @@ export function normalizeMapping(rows: RawRow[]): {
   return { entries, errors };
 }
 
-function snippetAround(text: string, start: number, end: number): string {
+export function snippetAround(text: string, start: number, end: number): string {
   const lineStart = text.lastIndexOf('\n', start - 1) + 1;
   let lineEnd = text.indexOf('\n', end);
   if (lineEnd === -1) lineEnd = text.length;

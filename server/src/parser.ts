@@ -90,7 +90,7 @@ const AFTER_HEADING = new Set([
   '[',
 ]);
 
-function buildLineStarts(text: string): number[] {
+export function buildLineStarts(text: string): number[] {
   const starts = [0];
   for (let i = 0; i < text.length; i++) {
     if (text[i] === '\n') starts.push(i + 1);
@@ -98,7 +98,7 @@ function buildLineStarts(text: string): number[] {
   return starts;
 }
 
-function posAt(offset: number, lineStarts: number[]): TextPos {
+export function posAt(offset: number, lineStarts: number[]): TextPos {
   // 二分找行
   let lo = 0;
   let hi = lineStarts.length - 1;

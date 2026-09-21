@@ -79,6 +79,77 @@ export interface PreviewResult {
   previewText: string;
 }
 
+// ---------- 条款裁撤 ----------
+
+export interface RemovedBlock {
+  number: number;
+  heading: string;
+  startLine: number;
+  endLine: number;
+  text: string;
+}
+
+export interface ImpactReference {
+  number: number;
+  pos: TextPos;
+  line: string;
+}
+
+export interface DirectImpact {
+  /** null 表示首个条款之前的前言区域 */
+  number: number | null;
+  heading: string;
+  headingLine: number | null;
+  references: ImpactReference[];
+}
+
+export interface TransitiveImpact {
+  number: number;
+  heading: string;
+  headingLine: number;
+}
+
+export interface RemovalImpact {
+  direct: DirectImpact[];
+  transitive: TransitiveImpact[];
+}
+
+export interface ReferenceEdge {
+  from: number;
+  to: number;
+}
+
+export interface RequiredReplacement {
+  number: number;
+  references: { pos: TextPos; line: string; clause: number | null }[];
+}
+
+export interface RemovalAnalysis {
+  numbers: number[];
+  removed: RemovedBlock[];
+  impact: RemovalImpact;
+  requiredReplacements: RequiredReplacement[];
+  graph: ReferenceEdge[];
+}
+
+export interface RemovalPreview {
+  removed: RemovedBlock[];
+  impact: RemovalImpact;
+  replacements: MappingEntry[];
+  changeCount: number;
+  changes: ChangeItem[];
+  previewText: string;
+}
+
+export interface RemovalCommitResult {
+  document: DocumentDTO;
+  removed: RemovedBlock[];
+  replacements: MappingEntry[];
+  changeCount: number;
+  changes: ChangeItem[];
+  analysis: AnalyzeDTO;
+}
+
 export interface CommitResult {
   document: DocumentDTO;
   mapping: MappingEntry[];
@@ -89,7 +160,13 @@ export interface CommitResult {
 
 export interface UndoResult {
   document: DocumentDTO;
-  undone: { mapping: MappingEntry[]; changeCount: number; createdAt: string };
+  undone: {
+    kind: 'renumber' | 'removal';
+    mapping: MappingEntry[];
+    removed?: number[];
+    changeCount: number;
+    createdAt: string;
+  };
   analysis: AnalyzeDTO;
 }
 

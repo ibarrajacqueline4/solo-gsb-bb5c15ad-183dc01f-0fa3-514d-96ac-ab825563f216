@@ -7,12 +7,14 @@ import type {
   DocumentDTO,
   MappingEntry,
   PreviewResult,
+  RemovalCommitResult,
   UndoResult,
 } from './types';
 import { SAMPLE_CONTRACT } from './sample';
 import AnalysisPanel from './components/AnalysisPanel';
 import MappingEditor, { type MappingRow } from './components/MappingEditor';
 import PreviewPanel from './components/PreviewPanel';
+import RemovalPanel from './components/RemovalPanel';
 import Conflicts from './components/Conflicts';
 import HighlightedText from './components/HighlightedText';
 
@@ -32,6 +34,7 @@ export default function App() {
   const [rows, setRows] = useState<MappingRow[]>(emptyRows());
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [committed, setCommitted] = useState<CommitResult | null>(null);
+  const [removalDone, setRemovalDone] = useState<RemovalCommitResult | null>(null);
   const [lastUndo, setLastUndo] = useState<UndoResult | null>(null);
   const [conflicts, setConflicts] = useState<ConflictError[]>([]);
   const [notice, setNotice] = useState('');
@@ -49,6 +52,7 @@ export default function App() {
     setRows(emptyRows());
     setPreview(null);
     setCommitted(null);
+    setRemovalDone(null);
     setLastUndo(null);
     setConflicts([]);
     setEditing(false);
@@ -115,6 +119,7 @@ export default function App() {
       setDoc(result.document);
       setAnalysis(result.analysis);
       setCommitted(result);
+      setRemovalDone(null);
       setPreview(null);
       setRows(emptyRows());
       setLastUndo(null);
@@ -131,6 +136,20 @@ export default function App() {
     }
   };
 
+  const onRemovalCommitted = (result: RemovalCommitResult) => {
+    setDoc(result.document);
+    setAnalysis(result.analysis);
+    setRemovalDone(result);
+    setCommitted(null);
+    setPreview(null);
+    setRows(emptyRows());
+    setLastUndo(null);
+    setConflicts([]);
+    setNotice(
+      `已原子裁撤：删除 ${result.removed.length} 个条款区块、改写 ${result.changes.length} 处引用。可撤销本次操作。`,
+    );
+  };
+
   const doUndo = async () => {
     if (!doc) return;
     setLoading(true);
@@ -142,10 +161,13 @@ export default function App() {
       setAnalysis(result.analysis);
       setLastUndo(result);
       setCommitted(null);
+      setRemovalDone(null);
       setPreview(null);
       setRows(emptyRows());
       setNotice(
-        `已撤销最近一次改号（${result.undone.changeCount} 处，恢复到操作前文本）。`,
+        result.undone.kind === 'removal'
+          ? `已撤销最近一次裁撤（${result.undone.changeCount} 处，恢复到操作前文本）。`
+          : `已撤销最近一次改号（${result.undone.changeCount} 处，恢复到操作前文本）。`,
       );
     } catch (e) {
       const err = e as ClientError;
@@ -178,7 +200,7 @@ export default function App() {
       <header>
         <h1>合同条款重编号工作台</h1>
         <p className="subtitle">
-          解析“第X条”定义与引用 · 批量映射 · 逐处预览 · 原子同步标题与正文 · 可撤销 · 可导出
+          解析“第X条”定义与引用 · 批量映射 · 条款裁撤 · 逐处预览 · 原子同步标题与正文 · 可撤销 · 可导出
         </p>
       </header>
 
@@ -277,18 +299,54 @@ export default function App() {
             </section>
           )}
 
-          <div className="step">4. 撤销 / 导出</div>
+          <div className="step">4. 条款裁撤（可选）</div>
+          <RemovalPanel
+            key={doc ? doc.updated_at : 'none'}
+            docId={doc!.id}
+            analysis={analysis}
+            loading={loading}
+            setLoading={setLoading}
+            onConflicts={setConflicts}
+            onNotice={setNotice}
+            onCommitted={onRemovalCommitted}
+          />
+
+          {removalDone && (
+            <section className="card">
+              <h3>✅ 已裁撤结果</h3>
+              <p className="muted">
+                删除条款：
+                {removalDone.removed.map((b) => `第${b.number}条`).join('、')}
+                {removalDone.replacements.length > 0 &&
+                  `；替代映射：${removalDone.replacements
+                    .map((m) => `第${m.from}条的引用→第${m.to}条`)
+                    .join('、')}`}
+              </p>
+              <details open>
+                <summary>裁撤后的全文（高亮改写的引用）</summary>
+                <HighlightedText
+                  text={removalDone.document.content}
+                  targets={new Set(removalDone.changes.map((c) => c.toNumber))}
+                />
+              </details>
+            </section>
+          )}
+
+          <div className="step">5. 撤销 / 导出</div>
           <section className="card final-bar">
             <button type="button" className="btn" onClick={doUndo} disabled={loading}>
-              ↩ 撤销最近一次改号
+              ↩ 撤销最近一次操作
             </button>
             <a className="btn btn-primary" href={doc ? api.exportUrl(doc.id) : '#'}>
               ⬇ 导出处理后的文本（.txt）
             </a>
             {lastUndo && (
               <span className="muted small">
-                上次撤销：{lastUndo.undone.changeCount} 处，映射{' '}
-                {lastUndo.undone.mapping.map((m) => `${m.from}→${m.to}`).join('、')}
+                上次撤销：
+                {lastUndo.undone.kind === 'removal'
+                  ? `裁撤 ${(lastUndo.undone.removed ?? []).map((n) => `第${n}条`).join('、')}`
+                  : `改号 ${lastUndo.undone.mapping.map((m) => `${m.from}→${m.to}`).join('、')}`}
+                （{lastUndo.undone.changeCount} 处）
               </span>
             )}
           </section>

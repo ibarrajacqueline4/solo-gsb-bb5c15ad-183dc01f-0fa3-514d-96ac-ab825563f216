@@ -14,6 +14,12 @@ import {
 } from './db';
 import { analyzeText, toAnalyzeDTO } from './parser';
 import { buildPlan, normalizeMapping, type ConflictError, type RawRow } from './renumber';
+import {
+  analyzeRemoval,
+  buildRemovalPlan,
+  normalizeRemovalRequest,
+  type RemovalConflict,
+} from './removal';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +68,26 @@ const requireDoc = (res: express.Response, id: number) => {
   }
   return doc;
 };
+
+/** 校验裁撤请求并生成计划，冲突时以 409 返回（不做任何写入）。 */
+function removalPlanOrConflict(res: express.Response, content: string, body: unknown) {
+  const { numbers, replacements, errors } = normalizeRemovalRequest(body);
+  if (errors.length > 0) {
+    fail(res, 409, 'REMOVAL_REJECTED', '裁撤请求未通过校验，已拒绝写入。', {
+      conflicts: errors,
+    });
+    return null;
+  }
+  const plan = buildRemovalPlan(content, numbers, replacements);
+  if (!plan.ok) {
+    const conflicts: RemovalConflict[] = plan.conflicts ?? [];
+    fail(res, 409, 'REMOVAL_CONFLICT', '存在未处理的引用或编号冲突，已拒绝写入。', {
+      conflicts,
+    });
+    return null;
+  }
+  return { numbers, replacements, plan };
+}
 
 // ---------- API ----------
 
@@ -148,20 +174,94 @@ app.post('/api/documents/:id/renumber/commit', (req, res) => {
   });
 });
 
-// 撤销最近一次改号（栈式，可连续撤销）。
+// ---------- 条款裁撤 ----------
+
+// 影响分析（宽松）：删除区块、引用图、直接与传递影响、待办替代映射。
+app.post('/api/documents/:id/removal/analyze', (req, res) => {
+  const id = Number(req.params.id);
+  const doc = requireDoc(res, id);
+  if (!doc) return;
+  const { numbers, errors } = normalizeRemovalRequest(req.body);
+  if (errors.length > 0) {
+    return fail(res, 409, 'REMOVAL_REJECTED', '裁撤请求未通过校验。', { conflicts: errors });
+  }
+  const result = analyzeRemoval(doc.content, numbers);
+  if (!result.ok) {
+    return fail(res, 409, 'REMOVAL_CONFLICT', '待删条款存在重复或缺失定义。', {
+      conflicts: result.conflicts ?? [],
+    });
+  }
+  res.json({ numbers, ...result.analysis });
+});
+
+// 裁撤预览（严格）：删除区块 + 逐处引用改写 + 处理后全文；冲突返回 409。
+app.post('/api/documents/:id/removal/preview', (req, res) => {
+  const id = Number(req.params.id);
+  const doc = requireDoc(res, id);
+  if (!doc) return;
+  const planned = removalPlanOrConflict(res, doc.content, req.body);
+  if (!planned) return;
+  const { plan } = planned;
+  res.json({
+    removed: plan.removed,
+    impact: plan.impact,
+    replacements: plan.replacements,
+    changeCount: plan.removed!.length + plan.changes!.length,
+    changes: plan.changes,
+    previewText: plan.newText,
+  });
+});
+
+// 确认裁撤：历史与正文在同一 SQLite 事务中原子落库，撤销入口与改号共用。
+app.post('/api/documents/:id/removal/commit', (req, res) => {
+  const id = Number(req.params.id);
+  const doc = requireDoc(res, id);
+  if (!doc) return;
+  const planned = removalPlanOrConflict(res, doc.content, req.body);
+  if (!planned) return;
+  const { numbers, replacements, plan } = planned;
+
+  const changeCount = plan.removed!.length + plan.changes!.length;
+  commitRenumber(
+    id,
+    doc.content,
+    plan.newText!,
+    JSON.stringify({ kind: 'removal', removed: numbers, replacements }),
+    changeCount,
+  );
+
+  const updated = getDocument(id)!;
+  res.json({
+    document: updated,
+    removed: plan.removed,
+    replacements: plan.replacements,
+    changeCount,
+    changes: plan.changes,
+    analysis: analysisOf(updated.content),
+  });
+});
+
+// 撤销最近一次改号或裁撤（栈式，可连续撤销）。
 app.post('/api/documents/:id/undo', (req, res) => {
   const id = Number(req.params.id);
   const doc = requireDoc(res, id);
   if (!doc) return;
   const undone = undoLastRenumber(id);
   if (!undone) {
-    return fail(res, 409, 'NOTHING_TO_UNDO', '没有可撤销的改号记录。');
+    return fail(res, 409, 'NOTHING_TO_UNDO', '没有可撤销的操作记录。');
   }
+  // 历史中的 mapping 字段：数组为改号映射；{ kind: 'removal', ... } 为裁撤记录。
+  const parsed = JSON.parse(undone.mapping);
+  const isRemoval =
+    parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed) &&
+    parsed.kind === 'removal';
   const updated = getDocument(id)!;
   res.json({
     document: updated,
     undone: {
-      mapping: JSON.parse(undone.mapping),
+      kind: isRemoval ? 'removal' : 'renumber',
+      mapping: isRemoval ? parsed.replacements : parsed,
+      removed: isRemoval ? parsed.removed : undefined,
       changeCount: undone.change_count,
       createdAt: undone.created_at,
     },

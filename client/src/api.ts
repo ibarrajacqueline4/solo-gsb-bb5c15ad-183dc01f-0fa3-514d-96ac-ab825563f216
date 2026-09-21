@@ -3,7 +3,11 @@ import type {
   ApiError,
   CommitResult,
   DocumentDTO,
+  MappingEntry,
   PreviewResult,
+  RemovalAnalysis,
+  RemovalCommitResult,
+  RemovalPreview,
   UndoResult,
 } from './types';
 
@@ -66,6 +70,24 @@ export const api = {
   },
   undo(id: number) {
     return request<UndoResult>(`/api/documents/${id}/undo`, { method: 'POST' });
+  },
+  removalAnalyze(id: number, numbers: number[]) {
+    return request<RemovalAnalysis>(`/api/documents/${id}/removal/analyze`, {
+      method: 'POST',
+      body: JSON.stringify({ numbers }),
+    });
+  },
+  removalPreview(id: number, numbers: number[], replacements: MappingEntry[]) {
+    return request<RemovalPreview>(`/api/documents/${id}/removal/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ numbers, replacements }),
+    });
+  },
+  removalCommit(id: number, numbers: number[], replacements: MappingEntry[]) {
+    return request<RemovalCommitResult>(`/api/documents/${id}/removal/commit`, {
+      method: 'POST',
+      body: JSON.stringify({ numbers, replacements }),
+    });
   },
   exportUrl(id: number) {
     return `/api/documents/${id}/export`;

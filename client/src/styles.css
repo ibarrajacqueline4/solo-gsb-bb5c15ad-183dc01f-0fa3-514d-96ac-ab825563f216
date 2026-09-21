@@ -393,6 +393,116 @@ del {
   flex-wrap: wrap;
 }
 
+/* ---------- 条款裁撤 ---------- */
+
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #a5301f;
+  border-color: #a5301f;
+}
+
+.clause-check-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 6px;
+  margin: 10px 0;
+}
+
+.clause-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 13.5px;
+  background: #fbfcfe;
+}
+
+.clause-check:hover {
+  border-color: #b9c4dd;
+}
+
+.clause-check.on {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.clause-check input {
+  accent-color: var(--danger);
+}
+
+.clause-check .ellipsis {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-removed td {
+  background: var(--danger-bg);
+}
+
+.removal-impact h4,
+.removal-preview h4 {
+  margin: 16px 0 8px;
+}
+
+.removal-impact {
+  border-top: 1px dashed var(--line);
+  margin-top: 14px;
+  padding-top: 4px;
+}
+
+.removal-preview {
+  border-top: 1px dashed var(--line);
+  margin-top: 14px;
+  padding-top: 4px;
+}
+
+.mapping-table select {
+  min-width: 220px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.mapping-table select.input-bad {
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.removed-block {
+  margin-bottom: 8px;
+}
+
+.removed-block summary {
+  color: var(--danger);
+}
+
+.removed-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--danger-bg);
+  border: 1px solid #f3c1bb;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 6px 0 0;
+  font-family: 'SFMono-Regular', Consolas, 'Source Han Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  text-decoration: line-through;
+  text-decoration-color: rgba(192, 57, 43, 0.55);
+  max-height: 220px;
+  overflow: auto;
+}
+
 summary {
   cursor: pointer;
   color: var(--primary);
